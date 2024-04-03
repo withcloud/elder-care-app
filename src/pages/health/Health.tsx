@@ -8,10 +8,10 @@ export default function Health() {
 
   return (
     <View>
-      <Button title="血氧" onPress={() => {
+      <Button title="血氧檢測" onPress={() => {
         navigation.navigate('Measure_SpO2')
       }} />
-      <Button title="血壓" onPress={() => {
+      <Button title="血壓檢測" onPress={() => {
         navigation.navigate('Measure_BP')
       }} />
     </View>

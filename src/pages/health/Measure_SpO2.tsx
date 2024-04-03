@@ -1,65 +1,75 @@
 import React, {useState, useEffect} from 'react';
-import {View, Text, Button, StyleSheet, TouchableOpacity} from 'react-native';
+import {View, Text, Button, StyleSheet, TouchableOpacity, Alert} from 'react-native';
 
 import useBluetooth from '../../hooks/useBluetooth';
+import useNavigation from '../../hooks/useNavigation';
+import useReading from '../../hooks/useReading';
 
 export default function Measure_SpO2() {
+
+  const navigation = useNavigation();
+  const {uploadSpO2} = useReading();
+
   const serviceUUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
   const characteristicUUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
   const prefix = 'PC-60F_SN857046';
   const deviceId = 'E9:D1:6B:E2:B3:56';
-  // const deviceId = '00:00:00:86:47:6E'; // 另一個血氧機
+  // const deviceId = '00:00:00:86:47:6E'; // 另一台血氧機
   
-  const {deviceList, isConnect, logData, requestPermissions, scanDevices, connectToDevice, startNotification, unsubscribe} = useBluetooth(serviceUUID, characteristicUUID, prefix);
+  const {deviceList, isConnect, isSubscribed, logData, requestPermissions, scanDevices, connectToDevice, startNotification, checkConnection, unsubscribe} = useBluetooth(deviceId, serviceUUID, characteristicUUID, prefix);
 
+  const [currentPulse, setCurrentPulse] = useState(0);
   const [spo2, setSpo2] = useState(0);
   const [hr, setHr] = useState(0);
-  // const [pi, setPi] = useState(0); // 暫不用
+  const [isNormal, setIiNormal] = useState(true);
+  const [result, setResult] = useState('')
 
   const [isFinished, setIsFinished] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const uploadData = async () => {
-    if (isFinished) {
-      // 檢查數值是否正常
-      const is_normal = true;
-      const description = '脈搏節奏律未見異常';
-
-      // 用api傳送數據
-
-      setIsFinished(false);
-    }
-  };
-
-  useEffect(() => {
-    const initialize = async () => {
-      let connected = false;
-      let subscribed = false;
-      await requestPermissions();
-      setIsFinished(false);
-      while (!connected) {
-        connected = await connectToDevice(deviceId);
-      }
-      while (!subscribed) {
-        subscribed = await startNotification(deviceId);
+    setUploading(true);
+    // 用api傳送數據
+    const upload = async () => {
+      const res = await uploadSpO2({
+        json: {
+          customerId: 'user_2eU9ZdXrlOI1UA0Jl1WNm90duK1',
+          spo2,
+          pi: '0',
+          hr,
+          isNormal,
+          result,
+        },
+      });
+      if ('result' in res) {
+        setCurrentPulse(0);
+        setSpo2(0);
+        setHr(0);
+        setIsFinished(false);
+        setUploading(false);
+      } else if ('error' in res) {
+        Alert.alert('上傳資料失敗');
       }
     };
-    initialize();
-
-  }, []);
+    upload();
+  };
 
   // 數據處理
   useEffect(() => {
-    if (logData.length > 9) {
+    if (!isFinished && logData.length > 9) {
       if (logData[3] === 7) {
         // 脈搏圖
+        if (logData[5] < 180) setCurrentPulse(logData[5]);
+        // console.log(logData)
 
       } else if (logData[3] === 8) {
-        console.log(logData);
+        // console.log(logData);
         setSpo2(logData[5]);
         setHr(logData[6]);
 
       } else if (logData[3] === 6 && logData[6] === 3) {
-        console.log(logData);
+        // 檢查數值是否正常
+        // console.log(logData);
         setSpo2(logData[7]);
         setHr(logData[8]);
         setIsFinished(true);
@@ -68,7 +78,6 @@ export default function Measure_SpO2() {
     }
   }, [logData]);
 
-
   return (
     <View>
       <Button title="掃描附近藍牙裝置" onPress={scanDevices} />
@@ -76,12 +85,21 @@ export default function Measure_SpO2() {
       {/* {deviceList.map((device, index) => (
         <Text key={index}>{`・name: ${device.name}, id: ${device.id}`}</Text>
       ))} */}
-      <Button title="連接藍牙" onPress={() => connectToDevice(deviceId)} />
-      {isConnect && <Text>已連接至 {deviceList.length > 0 ? deviceList[0].name : 'PC-60F_SN857046'}</Text>}
-      <Button title="訂閱數據" onPress={() => startNotification(deviceId)} />
+      <Button title="連接藍牙" onPress={() => connectToDevice()} />
+      <Button title="訂閱數據" onPress={() => startNotification()} />
       {/* <Text>output : {JSON.stringify(logData)}</Text>
       <Button title="停止訂閱" onPress={unsubscribe} />
       <Button title="連線狀態" onPress={checkConnection} /> */}
+
+      <Button title="歷史測量記錄" onPress={() => navigation.navigate('Measure_SpO2_record')} />
+
+      {isConnect ?
+        <Text style={{color: 'red', marginLeft: 8}}>設備：已連接至 {deviceList.length > 0 ? deviceList[0].name : 'PC-60F_SN857046'}</Text>
+      :
+        <Text style={{marginLeft: 8}}>設備：未連接</Text>
+      }
+
+      <Text style={{textAlign: 'center', marginTop: 20}}>current Pulse : {currentPulse}</Text>
 
       <View style={styles.readingContainer}>
         <View style={styles.readingItem}>
@@ -99,10 +117,16 @@ export default function Measure_SpO2() {
         </View>
       </View>
 
-      <Text style={styles.connect}>設備：{isConnect ? '已連接' : '未連接'}</Text>
-      <TouchableOpacity style={{...styles.saveBtn, backgroundColor: isFinished ? '#02C874' : '#BEBEBE'}} onPress={uploadData}>
+      {isFinished && <Text style={styles.finished}>測量完成</Text>}
+      <TouchableOpacity 
+      style={{...styles.saveBtn, backgroundColor: isFinished ? '#02C874' : '#BEBEBE'}} 
+      disabled={!isFinished || uploading}
+      onPress={uploadData}>
         <Text style={styles.saveBtnTxt}>保存結果</Text>
       </TouchableOpacity>
+
+      <Text>isConnect: {JSON.stringify(isConnect)}</Text>
+      <Text>isSubscribed: {JSON.stringify(isSubscribed)}</Text>
     </View>
   );
 }
@@ -128,7 +152,7 @@ const styles = StyleSheet.create({
     color: '#8E8E8E',
     textAlign: 'center',
   },
-  connect: {
+  finished: {
     fontSize: 10,
     textAlign: 'center',
     marginBottom: 6,

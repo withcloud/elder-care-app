@@ -1,75 +1,80 @@
 import React, {useState, useEffect} from 'react';
-import {View, Text, Button, StyleSheet, TouchableOpacity} from 'react-native';
+import {View, Text, Button, StyleSheet, TouchableOpacity, Alert} from 'react-native';
 
 import useBluetooth from '../../hooks/useBluetooth';
+import useNavigation from '../../hooks/useNavigation';
+import useReading from '../../hooks/useReading';
 
 export default function Measure_BP() {
-  const serviceUUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
-  const characteristicUUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
+
+  const navigation = useNavigation();
+  const {uploadBp} = useReading();
+
+  const serviceUUID = "1000";
+  const characteristicUUID = "1002";
   const prefix = 'Bioland-BPM';
   const deviceId = 'CD:13:1D:00:E8:02';
 
-  const {deviceList, isConnect, logData, requestPermissions, scanDevices, connectToDevice, startNotification, unsubscribe} = useBluetooth(serviceUUID, characteristicUUID, prefix);
+  const {deviceList, isConnect, logData, requestPermissions, scanDevices, connectToDevice, startNotification, checkConnection, unsubscribe} = useBluetooth(deviceId, serviceUUID, characteristicUUID, prefix);
 
+  const [currentBp, setCurrentBp] = useState(0);
   const [sbp, setSbp] = useState(0);
   const [dbp, setDbp] = useState(0);
   const [hr, setHr] = useState(0);
-  // const [pi, setPi] = useState(0); // 暫不用
+  const [side, setSide] = useState('null');
 
   const [isFinished, setIsFinished] = useState(false);
-  const [uploading, setUploading] = useState(false)
+  const [uploading, setUploading] = useState(false);
 
   const uploadData = async () => {
     setUploading(true);
-    // 檢查數值是否正常
-    const is_normal = true;
-    const description = '脈搏節奏律未見異常';
-
-    // 用api傳送數據
-
-    setUploading(false);
-    setIsFinished(false);
+    if (!uploading) {
+      // 用api傳送數據
+      const upload = async () => {
+        const res = await uploadBp({
+          json: {
+            customerId: 'user_2eU9ZdXrlOI1UA0Jl1WNm90duK1',
+            sbp,
+            dbp,
+            hr,
+            side,
+          },
+        });
+        if ('result' in res) {
+          setCurrentBp(0);
+          setSbp(0);
+          setDbp(0);
+          setHr(0);
+          setSide('null');
+          setIsFinished(false);
+          setUploading(false);
+        } else if ('error' in res) {
+          Alert.alert('上傳資料失敗');
+        }
+      };
+      upload();
+    }
   };
-
-  useEffect(() => {
-    const initialize = async () => {
-      let connected = false;
-      let subscribed = false;
-      await requestPermissions();
-      setIsFinished(false);
-      while (!connected) {
-        connected = await connectToDevice(deviceId);
-      }
-      while (!subscribed) {
-        subscribed = await startNotification(deviceId);
-      }
-    };
-    initialize();
-
-  }, []);
 
   // 數據處理
   useEffect(() => {
     console.log(logData);
-    // if (logData.length > 9) {
-    //   if (logData[3] === 7) {
-    //     // 脈搏圖
+    if (!isFinished && logData.length > 7) {
+      if (logData[1] === 8) {
+        setCurrentBp(logData[5]);
 
-    //   } else if (logData[3] === 8) {
-    //     console.log(logData);
-    //     setSpo2(logData[5]);
-    //     setHr(logData[6]);
+      } else if (logData[1] === 14) {
+        console.log(logData);
+        setSbp(logData[9]);
+        setDbp(logData[11]);
+        setHr(logData[12]);
+        setIsFinished(true);
+        unsubscribe();
 
-    //   } else if (logData[3] === 6 && logData[6] === 3) {
-    //     console.log(logData);
-    //     setSpo2(logData[7]);
-    //     setHr(logData[8]);
-    //     setIsFinished(true);
-    //     unsubscribe();
-    //   }
-    // }
+      }
+    }
   }, [logData]);
-
+  
   return (
     <View>
       <Button title="掃描附近藍牙裝置" onPress={scanDevices} />
@@ -77,12 +82,21 @@ export default function Measure_BP() {
       {/* {deviceList.map((device, index) => (
         <Text key={index}>{`・name: ${device.name}, id: ${device.id}`}</Text>
       ))} */}
-      <Button title="連接藍牙" onPress={() => connectToDevice(deviceId)} />
-      {isConnect && <Text>已連接至 {deviceList.length > 0 ? deviceList[0].name : 'Bioland-BPM'}</Text>}
-      <Button title="訂閱數據" onPress={() => startNotification(deviceId)} />
+      <Button title="連接藍牙" onPress={() => connectToDevice()} />
+      <Button title="訂閱數據" onPress={() => startNotification()} />
       {/* <Text>output : {JSON.stringify(logData)}</Text>
       <Button title="停止訂閱" onPress={unsubscribe} />
       <Button title="連線狀態" onPress={checkConnection} /> */}
+
+      <Button title="歷史測量記錄" onPress={() => navigation.navigate('Measure_BP_record')} />
+
+      {isConnect ?
+        <Text style={{color: 'red', marginLeft: 8}}>設備：已連接至 {deviceList.length > 0 ? deviceList[0].name : 'Bioland-BPM'}</Text>
+      :
+        <Text style={{marginLeft: 8}}>設備：未連接</Text>
+      }
+
+      <Text style={{textAlign: 'center', marginTop: 20}}>current BP : {currentBp}</Text>
 
       <View style={styles.readingContainer}>
         <View style={styles.readingItem}>
@@ -99,7 +113,7 @@ export default function Measure_BP() {
         </View>
       </View>
 
-      <Text style={styles.connect}>設備：{isConnect ? '已連接' : '未連接'}</Text>
+      {isFinished && <Text style={styles.finished}>測量完成</Text>}
       <TouchableOpacity
         style={{...styles.saveBtn, backgroundColor: isFinished ? '#02C874' : '#BEBEBE'}}
         disabled={!isFinished || uploading}
@@ -131,7 +145,7 @@ const styles = StyleSheet.create({
     color: '#8E8E8E',
     textAlign: 'center',
   },
-  connect: {
+  finished: {
     fontSize: 10,
     textAlign: 'center',
     marginBottom: 6,
